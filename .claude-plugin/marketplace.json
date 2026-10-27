@@ -10,7 +10,7 @@
     {
       "name": "switchboard",
       "source": "./plugins/switchboard",
-      "description": "/switchboard: one pane listing every installed mod with an On/Off button. Changes apply from the next chat."
+      "description": "/switchboard: one pane listing every installed mod with an On/Off button. Changes take hold right away, in the chat you are in."
     }
   ]
 }

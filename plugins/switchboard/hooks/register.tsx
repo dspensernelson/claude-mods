@@ -6,7 +6,8 @@ import type { ModRow } from '../types'
 // Switchboard: /switchboard opens a pane with every installed mod and an On/Off
 // button each. A press runs Claude Code's own `claude plugin enable|disable`, the
 // same switch /plugin flips, so it works for any mod without changing that mod.
-// Claude Code loads plugins when a chat starts: a change applies from the next chat.
+// Then it runs /reload-plugins so the change takes hold in this chat. Where that
+// command is missing, the change applies from the next chat, as plugins load then.
 
 const PANE = 'switchboard'
 const TITLE = 'Switchboard'
@@ -17,6 +18,9 @@ const rows = atom({ plugin: 'switchboard', key: 'rows' } as const, [] as ModRow[
 const busy = atom({ plugin: 'switchboard', key: 'busy' } as const, '')
 const note = atom({ plugin: 'switchboard', key: 'note' } as const, '')
 const atStart = atom({ plugin: 'switchboard', key: 'atStart' } as const, {} as Record<string, boolean>)
+const canReload = atom({ plugin: 'switchboard', key: 'canReload' } as const, false)
+
+const RELOAD = 'reload-plugins'
 
 let home = ''
 let claudeBin = 'claude'
@@ -83,6 +87,17 @@ async function findClaude($: EngineInterface) {
   return 'claude'
 }
 
+/** Runs /reload-plugins as if typed. True when it ran; false where the app has no such command or it failed. */
+async function reloadNow($: EngineInterface) {
+  if (!(await read($, canReload))) return false
+  try {
+    await $.command.run({ command: RELOAD })
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function toggle($: EngineInterface, row: ModRow) {
   if ((await read($, busy)) || isProtected(row)) return
   const verb = row.enabled ? 'disable' : 'enable'
@@ -90,7 +105,15 @@ async function toggle($: EngineInterface, row: ModRow) {
   try {
     const r = await $.process.run([claudeBin, 'plugin', verb, row.id])
     const said = (r.stderr || r.stdout).trim().split('\n').pop() ?? ''
-    await update($, note, () => (r.exitCode === 0 ? `${row.name} is ${verb}d. It applies from your next chat.` : `Could not ${verb} ${row.name}: ${said}`))
+    if (r.exitCode !== 0) {
+      await update($, note, () => `Could not ${verb} ${row.name}: ${said}`)
+    } else if (await reloadNow($)) {
+      // The reload loaded the new set, so this chat now runs what the settings say.
+      await update($, atStart, s => ({ ...s, [row.id]: !row.enabled }))
+      await update($, note, () => `${row.name} is ${verb}d in this chat.`)
+    } else {
+      await update($, note, () => `${row.name} is ${verb}d. It applies from your next chat.`)
+    }
   } catch (err) {
     await update($, note, () => `Could not ${verb} ${row.name}: ${err instanceof Error ? err.message : String(err)}`)
   }
@@ -103,7 +126,9 @@ export const register: Register = on => {
     const r = await next(e)
     home = (await $.env.get('HOME')) ?? ''
     claudeBin = await findClaude($)
-    await $.command.register({ name: 'switchboard', description: 'Turn your mods on or off (applies from the next chat)', immediate: true })
+    await $.command.register({ name: 'switchboard', description: 'Turn your mods on or off', immediate: true })
+    const commands = await $.command.list().catch(() => [])
+    await update($, canReload, () => commands.some(c => c.name === RELOAD))
     // What this chat loaded: set once, so a reload of this mod keeps the chat's real starting point.
     if (Object.keys(await read($, atStart)).length === 0) {
       const enabled = obj(obj(await $.settings.read({ source: 'user' })).enabledPlugins)
@@ -124,13 +149,14 @@ export const register: Register = on => {
     const list = await read($, rows)
     const working = await read($, busy)
     const last = await read($, note)
+    const live = await read($, canReload)
     const changed = list.filter(r => r.enabled !== r.enabledAtStart).length
 
     return (
       // Sized by the pane, not by a column count: a desktop's proportional font
       // makes bodyColumns overshoot, and a fixed width pushed the buttons off the edge.
       <Box flexDirection="column" width="100%">
-        <Text dimColor wrap="wrap">Changes apply from your next chat.</Text>
+        <Text dimColor wrap="wrap">{live ? 'Changes apply right away, in this chat.' : 'Changes apply from your next chat.'}</Text>
         {list.length === 0 && <Text dimColor>No mods installed.</Text>}
         {list.map(row => {
           const locked = isProtected(row)

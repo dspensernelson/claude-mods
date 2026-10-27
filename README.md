@@ -21,7 +21,7 @@ The explanations follow the author's style ("smart but not a programmer", short 
 
 Type `/switchboard` to open a side panel listing every mod you have installed, from any source, each with a **Turn on** or **Turn off** button and its description.
 
-It uses Claude Code's own plugin on/off setting (the same one `claude plugin enable` and `disable` change), so it works with any mod without changing that mod. Claude Code loads mods when a chat starts, so **a change applies from your next chat**, and the panel says so. The Switchboard cannot switch itself off from its own panel.
+It uses Claude Code's own plugin on/off setting (the same one `claude plugin enable` and `disable` change), so it works with any mod without changing that mod. After each switch it runs `/reload-plugins` for you, so **the change takes hold right away, in the chat you are in**. Where that command is not available, the change applies from your next chat instead, and the panel's top line says which you have. The Switchboard cannot switch itself off from its own panel.
 
 ## Install
 

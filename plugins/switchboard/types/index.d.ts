@@ -18,8 +18,10 @@ declare module 'claude-code' {
       busy: string
       /** One line under the list: the last result or error. */
       note: string
-      /** id -> on, as this chat started. Set once per chat, kept across reloads. */
+      /** id -> on, as this chat has it loaded: set at its start, then after each reload. */
       atStart: Record<string, boolean>
+      /** Whether this app has /reload-plugins, so a switch can take hold in this chat. */
+      canReload: boolean
     }
   }
 }

@@ -1,0 +1,6 @@
+{
+  "name": "limits",
+  "version": "0.4.0",
+  "description": "HUD above the prompt: 5-hour and weekly usage bars, a context circle, and Compact, Debrief, Plain English and Catch me up buttons.",
+  "types": "./types/index.d.ts"
+}

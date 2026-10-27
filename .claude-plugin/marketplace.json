@@ -1,0 +1,16 @@
+{
+  "name": "spenser-claude-mods",
+  "owner": { "name": "Spenser Nelson" },
+  "plugins": [
+    {
+      "name": "limits",
+      "source": "./plugins/limits",
+      "description": "HUD above the prompt: 5-hour and weekly usage bars, a context circle, and Compact, Debrief, Plain English and Catch me up buttons."
+    },
+    {
+      "name": "switchboard",
+      "source": "./plugins/switchboard",
+      "description": "/switchboard: one pane listing every installed mod with an On/Off button. Changes apply from the next chat."
+    }
+  ]
+}

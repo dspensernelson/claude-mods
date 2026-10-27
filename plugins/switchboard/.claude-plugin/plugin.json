@@ -1,0 +1,6 @@
+{
+  "name": "switchboard",
+  "version": "0.1.1",
+  "description": "/switchboard: one pane listing every installed mod with an On/Off button, using Claude Code's own plugin enable and disable. Changes apply from the next chat.",
+  "types": "./types/index.d.ts"
+}

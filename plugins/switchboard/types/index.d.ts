@@ -4,10 +4,12 @@ export type ModRow = {
   id: string
   name: string
   description: string
-  /** On in settings now: what the next chat will load. */
-  enabled: boolean
-  /** On when this chat started: what this chat has loaded. */
-  enabledAtStart: boolean
+  /** On in your user settings: what every new chat loads. */
+  global: boolean
+  /** On in this chat right now. */
+  here: boolean
+  /** This chat's own choice, when it differs from the global one; undefined when this chat follows global. */
+  chatOnly?: boolean
 }
 
 declare module 'claude-code' {
@@ -18,8 +20,10 @@ declare module 'claude-code' {
       busy: string
       /** One line under the list: the last result or error. */
       note: string
-      /** id -> on, as this chat has it loaded: set at its start, then after each reload. */
+      /** id -> on, as the settings stood at this chat's last plugin load. */
       atStart: Record<string, boolean>
+      /** id -> on: this chat's own choices, layered over the global settings at every reload. */
+      chat: Record<string, boolean>
       /** Whether this app has /reload-plugins, so a switch can take hold in this chat. */
       canReload: boolean
     }

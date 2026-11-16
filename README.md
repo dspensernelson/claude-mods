@@ -1,6 +1,6 @@
 # Claude Code mods
 
-Two small mods for [Claude Code](https://code.claude.com): add-ons that put a panel, a bar or a button inside Claude Code while you work. They need Claude Code 2.1.287 or newer in a terminal, or the Code tab of the Claude desktop app.
+Three small mods for [Claude Code](https://code.claude.com): add-ons that put a panel, a bar or a button inside Claude Code while you work. They need Claude Code 2.1.287 or newer in a terminal, or the Code tab of the Claude desktop app.
 
 ## limits
 
@@ -19,9 +19,25 @@ The explanations follow the author's style ("smart but not a programmer", short 
 
 ## switchboard
 
-Type `/switchboard` to open a side panel listing every mod you have installed, from any source, each with a **Turn on** or **Turn off** button and its description.
+Type `/switchboard` to open a side panel listing every mod you have installed, from any source, as a small table with two switches per mod:
 
-It uses Claude Code's own plugin on/off setting (the same one `claude plugin enable` and `disable` change), so it works with any mod without changing that mod. After each switch it runs `/reload-plugins` for you, so **the change takes hold right away, in the chat you are in**. Where that command is not available, the change applies from your next chat instead, and the panel's top line says which you have. The Switchboard cannot switch itself off from its own panel.
+- **This chat**: turns the mod on or off in the chat you are in only. Other chats keep their own setting. A choice that differs from your usual one is marked, and the panel's footer counts them.
+- **All chats**: your usual setting, used by every new chat. It is Claude Code's own plugin on/off setting (the same one `claude plugin enable` and `disable` change), so it works with any mod without changing that mod.
+
+After each switch it runs `/reload-plugins` for you, so **the change takes hold right away**. Where that command is not available, the change applies from your next chat instead. Hover a mod's row to see its description. The Switchboard does not list itself, so it cannot switch itself off.
+
+## todo
+
+Your own to-do list, beside the chat, the same in every chat. Just talk to Claude:
+
+- "Put call the bank on my to-do list."
+- "Make a list called Up next with: book the dentist, review the draft."
+- "Put review the draft on Claude's list." / "Move my 2 to Claude."
+- "Check off Claude's 1." / "What's next?"
+
+The **To-do** panel (or `/todo`) shows the list in two groups, **Waiting on Claude** first, then **Waiting on you**, each numbered from 1. Click an item to check it off. Hover an item to move it to the other group or delete it. **Clear done** drops the checked items.
+
+The list is kept by Claude Code on your computer, not in any one chat, so a new chat picks up where the last one left off.
 
 ## Install
 
@@ -33,6 +49,10 @@ At the prompt of Claude Code in a terminal:
 
 ```
 /plugin install switchboard --marketplace dspensernelson/claude-mods
+```
+
+```
+/plugin install todo --marketplace dspensernelson/claude-mods
 ```
 
 Or from a shell:

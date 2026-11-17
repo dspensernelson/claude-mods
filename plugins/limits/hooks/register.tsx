@@ -5,10 +5,12 @@ import type { Levels, Mode } from '../types'
 
 // ---- Usage numbers -------------------------------------------------------
 
-const EMPTY: Levels = { session: null, week: null, context: null, sessionReset: null, weekReset: null }
+const EMPTY: Levels = { session: null, week: null, context: null, sessionReset: null, weekReset: null, others: [], cost: null }
 const levels = atom({ plugin: 'limits', key: 'levels' } as const, EMPTY)
 
-type Usage = Pick<SessionMeasureInput, 'rateLimits' | 'context'>
+type Usage = Pick<SessionMeasureInput, 'rateLimits' | 'context' | 'cost'>
+
+const SHOWN = ['five_hour', 'seven_day']
 
 export const levelsOf = (u: Usage): Levels => {
   const session = u.rateLimits.find(r => r.kind === 'five_hour')
@@ -19,8 +21,19 @@ export const levelsOf = (u: Usage): Levels => {
     context: u.context.percent ?? null,
     sessionReset: session?.resetsAt ?? null,
     weekReset: week?.resetsAt ?? null,
+    // Whatever else the account reports, such as a company spend limit
+    others: u.rateLimits
+      .filter(r => !SHOWN.includes(r.kind))
+      .map(r => ({ kind: r.kind, percent: r.percentUsed, reset: r.resetsAt ?? null })),
+    cost: u.cost?.usd ?? null,
   }
 }
+
+// Short label for a limit window: spend_limit -> "spend", anything else as it comes, trimmed
+export const limitLabel = (kind: string) => (kind === 'spend_limit' ? 'spend' : kind.replace(/_/g, ' ').slice(0, 10))
+
+// This chat's cost: $0.42, $12.30; under a cent shows as <$0.01
+export const money = (usd: number) => (usd > 0 && usd < 0.01 ? '<$0.01' : `$${usd.toFixed(2)}`)
 
 // Hover text for a bar: "resets in 4h 12m", "resets in 5d 3h". Relative, so no time zone to get wrong
 export const resetText = (iso: string | null, now: number) => {
@@ -60,6 +73,15 @@ export const DEBRIEF = [
   "Don't write anything yet; wait for my OK. Never write a rule I did not explicitly agree to.",
 ].join(' ')
 
+// What the Update Todo button asks Claude. It edits the list straight away (easy to undo) and says what changed
+export const UPDATE_TODO = [
+  'Update my to-do list from this session, using the todo tool.',
+  'First show me the list as it stands.',
+  'Then check off what we finished, add what is still open or what I said I need to do, and put anything you promised to do later under Claude.',
+  'Keep each line short. Do not remove anything that is not done.',
+  'Tell me what you changed.',
+].join(' ')
+
 // Green under 60, yellow 60 to 84, red 85 and up
 export const dotColor = (p: number) => (p >= 85 ? '#E24B4A' : p >= 60 ? '#EF9F27' : '#639922')
 export const dotEmoji = (p: number) => (p >= 85 ? '🔴' : p >= 60 ? '🟡' : '🟢')
@@ -71,6 +93,7 @@ const pct = (p: number) => `${Math.round(p)}%`
 
 const BAR_W = 80
 const BLUE = '#378ADD'
+const MONEY = '#639922'
 const CARET = '#E24B4A'
 const TRACK = '#88878055'
 
@@ -88,7 +111,7 @@ export const ringSvg = (p: number) => {
   const r = 6
   const c = 2 * Math.PI * r
   const on = (c * clamp(p)) / 100
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="${r}" fill="none" stroke="${TRACK}" stroke-width="2.5"/><circle cx="8" cy="8" r="${r}" fill="none" stroke="#B4B2A9" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="${on.toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 8 8)"/></svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="${r}" fill="none" stroke="${TRACK}" stroke-width="2.5"/><circle cx="8" cy="8" r="${r}" fill="none" stroke="${dotColor(p)}" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="${on.toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 8 8)"/></svg>`
 }
 
 // Five-cell text bar for the terminal: 42 -> ▰▰▱▱▱
@@ -206,6 +229,8 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const now = await read($, levels)
+    const others = now.others ?? []
+    const cost = now.cost ?? null
     const current = await read($, answer)
     // Which button is working right now, if any: that one alone lights up
     const working: 'plain' | 'catchup' | 'compact' | null =
@@ -218,7 +243,8 @@ export const register: Register = on => {
     const { Button, Text: Label } = $.ui.resolve(e)
     // Every action is a pill. A red caret marks the ones that answer in the right panel.
     // The one working right now is drawn as the highlighted button and says so
-    const action = (key: 'plain' | 'catchup' | 'compact' | 'debrief', label: string, onPress: () => unknown, toPanel = false) =>
+    const updateTodo = () => void $.prompt.submit({ text: UPDATE_TODO })
+    const action = (key: 'plain' | 'catchup' | 'compact' | 'debrief' | 'todo', label: string, onPress: () => unknown, toPanel = false) =>
       working === key ? (
         <Button key={key} label="Working…" variant="primary" onPress={onPress} />
       ) : toPanel ? (
@@ -232,6 +258,7 @@ export const register: Register = on => {
     const actions = [
       action('compact', 'Compact', () => compact($)),
       action('debrief', 'Debrief', debrief),
+      action('todo', 'Update Todo', updateTodo),
       <Label key="divider" dimColor>│</Label>,
       action('plain', 'Plain English', () => explain($, 'plain'), true),
       action('catchup', 'Catch me up', () => explain($, 'catchup'), true),
@@ -254,6 +281,12 @@ export const register: Register = on => {
             <Box key="levels" flexDirection="row" alignItems="center" gap={2} flexShrink={0}>
               {meter('session', '5h', now.session, now.sessionReset)}
               {meter('week', 'wk', now.week, now.weekReset)}
+              {others.map(o => meter(`limit-${o.kind}`, limitLabel(o.kind), o.percent, o.reset))}
+              {cost !== null && (
+                <Text key="cost" color={MONEY}>
+                  {money(cost)}
+                </Text>
+              )}
               {now.context !== null && (
                 <Box key="context" flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
                   <Svg source={ringSvg(now.context)} alt={`context ${pct(now.context)}`} width={16} height={16} />
@@ -274,6 +307,8 @@ export const register: Register = on => {
     const words = [
       now.session === null ? '' : `${dotEmoji(now.session)} 5h ${textBar(now.session)} ${pct(now.session)}`,
       now.week === null ? '' : `${dotEmoji(now.week)} wk ${textBar(now.week)} ${pct(now.week)}`,
+      ...others.map(o => `${dotEmoji(o.percent)} ${limitLabel(o.kind)} ${textBar(o.percent)} ${pct(o.percent)}`),
+      cost === null ? '' : money(cost),
       now.context === null ? '' : `◔ ${pct(now.context)}`,
     ].filter(Boolean)
     return (

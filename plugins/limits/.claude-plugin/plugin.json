@@ -1,6 +1,6 @@
 {
   "name": "limits",
-  "version": "0.4.0",
-  "description": "HUD above the prompt: 5-hour and weekly usage bars, a context circle, and Compact, Debrief, Plain English and Catch me up buttons.",
+  "version": "0.6.0",
+  "description": "HUD above the prompt: 5-hour, weekly and any other usage-limit bars (such as a company spend limit), this chat's cost, a context circle, and Compact, Debrief, Update Todo, Plain English and Catch me up buttons.",
   "types": "./types/index.d.ts"
 }

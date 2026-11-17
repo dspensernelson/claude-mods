@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing'
 import type { SessionMessage } from 'claude-code'
-import { barSvg, DEBRIEF, dotColor, lastExchange, levelsOf, resetText, textBar, VOICE, wholeSession } from './register'
+import { barSvg, DEBRIEF, dotColor, lastExchange, levelsOf, limitLabel, money, resetText, textBar, UPDATE_TODO, VOICE, wholeSession } from './register'
 
 const USAGE = {
   rateLimits: [
@@ -8,12 +8,62 @@ const USAGE = {
     { kind: 'seven_day', percentUsed: 63, resetsAt: '2026-10-25T16:00:00Z' },
   ],
   context: { window: 200000, percent: 37 },
+  cost: { usd: 9.99 },
 } as never
 
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 4, bodyColumns: 140, scroll: { offset: 0 }, view: {} }
 
 test('levels pick session, week and context', () => {
-  expect(levelsOf(USAGE)).toEqual({ session: 12, week: 63, context: 37, sessionReset: '2026-10-20T20:10:00Z', weekReset: '2026-10-25T16:00:00Z' })
+  expect(levelsOf(USAGE)).toEqual({
+    session: 12,
+    week: 63,
+    context: 37,
+    sessionReset: '2026-10-20T20:10:00Z',
+    weekReset: '2026-10-25T16:00:00Z',
+    others: [],
+    cost: 9.99,
+  })
+})
+
+const COMPANY = {
+  rateLimits: [{ kind: 'spend_limit', percentUsed: 41.5, resetsAt: '2026-12-01T00:00:00Z' }],
+  context: { window: 200000, percent: 8 },
+  cost: { usd: 3.456 },
+} as never
+
+test('levels keep a spend limit and the chat cost', () => {
+  const l = levelsOf(COMPANY)
+  expect(l.session).toBeNull()
+  expect(l.others).toEqual([{ kind: 'spend_limit', percent: 41.5, reset: '2026-12-01T00:00:00Z' }])
+  expect(l.cost).toBe(3.456)
+  expect(limitLabel('spend_limit')).toBe('spend')
+  expect(money(3.456)).toBe('$3.46')
+  expect(money(0.004)).toBe('<$0.01')
+  expect(money(0)).toBe('$0.00')
+})
+
+test('a company account shows the spend bar and the chat cost, on desktop and terminal', async ($, on) => {
+  mock.clock(on, { now: Date.parse('2026-11-13T16:00:00Z') })
+  on('session.start', () => ({ cwd: '/tmp' }) as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('ui.status', () => ({ value: undefined }) as never)
+  on('ui.render', { component: 'AbovePrompt' }, (t, e) => (t.ui.resolve(e as never) as never as { Box: (p: object) => never }).Box({ key: 'others' }))
+  on('session.usage', () => ({ value: COMPANY }))
+  await $.session.start({ source: 'startup', cwd: '/tmp' } as never)
+
+  const desk = await $.ui.mount({ plugin: 'limits', surface: 'desktop', component: 'AbovePrompt', props: BAND } as never)
+  const alts = (await desk.findAll({ type: 'Svg' })).map(svg => svg.props.alt)
+  expect(alts).toContain('spend 42% used')
+  expect(alts).not.toContain('5h level')
+  const cost = (await desk.findAll({ type: 'Text' })).find(t => t.text === '$3.46')
+  expect(cost?.props.color).toBe('#639922')
+  const ring = (await desk.findAll({ type: 'Svg' })).find(s => s.props.alt === 'context 8%')
+  expect(ring?.props.source).toContain('stroke="#639922"')
+  await desk.unmount()
+
+  const term = await $.ui.mount({ plugin: 'limits', surface: 'terminal', component: 'AbovePrompt', props: BAND } as never)
+  expect(await term.find({ text: /🟢 spend ▰▰▱▱▱ 42% {3}\$3\.46 {3}◔ 8%/ })).toBeDefined()
+  await term.unmount()
 })
 
 test('dot goes green, yellow, red', () => {
@@ -55,6 +105,8 @@ test('the HUD shows both bars, the context circle and the buttons, on desktop an
   expect(await desk.find({ key: 'debrief' })).toBeDefined()
   expect(await desk.find({ key: 'compact' })).toBeDefined()
   expect(await desk.find({ text: /security-lab/ })).toBeUndefined()
+  expect(await desk.find({ key: 'todo' })).toBeDefined()
+  expect(await desk.find({ text: '$9.99' })).toBeDefined()
   await desk.unmount()
 
   const term = await $.ui.mount({ plugin: 'limits', surface: 'terminal', component: 'AbovePrompt', props: BAND } as never)
@@ -132,6 +184,27 @@ test('Debrief sends his debrief request to Claude, and it asks before writing', 
   expect(sent).toContain('wait for my OK')
 })
 
+test('Update Todo asks Claude to update the to-do list with the todo tool', async ($, on) => {
+  let sent = ''
+  mock.clock(on, { now: Date.parse('2026-10-20T16:00:00Z') })
+  on('session.start', () => ({ cwd: '/tmp' }) as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('ui.status', () => ({ value: undefined }) as never)
+  on('ui.render', { component: 'AbovePrompt' }, (t, e) => (t.ui.resolve(e as never) as never as { Box: (p: object) => never }).Box({ key: 'others' }))
+  on('session.usage', () => ({ value: USAGE }))
+  on('session.cwd', () => ({ value: '/tmp/RRF' }) as never)
+  on('process.run', () => ({ value: { exitCode: 128, stdout: '', stderr: 'not a repo' } }) as never)
+  on('prompt.submit', (_t, e) => {
+    sent = (e as { text: string }).text
+    return { text: sent } as never
+  })
+  await $.session.start({ source: 'startup', cwd: '/tmp' } as never)
+  const band = await $.ui.mount({ plugin: 'limits', surface: 'desktop', component: 'AbovePrompt', props: BAND } as never)
+  await band.press({ key: 'todo' })
+  expect(sent).toBe(UPDATE_TODO)
+  expect(sent).toContain('todo tool')
+})
+
 test('Compact runs a compact, and says why when it is skipped', async ($, on) => {
   let compacts = 0
   let busy = false
@@ -198,7 +271,7 @@ test('buttons are pills in order, with a divider and red carets on the panel one
   await $.session.start({ source: 'startup', cwd: '/tmp' } as never)
   const band = await $.ui.mount({ plugin: 'limits', surface: 'desktop', component: 'AbovePrompt', props: BAND } as never)
   const order = (await band.findAll({ type: 'Button' })).map(b => b.key)
-  expect(order).toEqual(['compact', 'debrief', 'plain', 'catchup'])
+  expect(order).toEqual(['compact', 'debrief', 'todo', 'plain', 'catchup'])
   for (const b of await band.findAll({ type: 'Button' })) expect(b.props.plain).toBeUndefined()
   expect(await band.find({ text: '│' })).toBeDefined()
   const carets = (await band.findAll({ text: /›/ })).filter(t => t.type === 'Text')

@@ -8,7 +8,7 @@ export type TodoItem = {
   who: 'you' | 'claude'
 }
 
-/** The whole list, as the store keeps it across chats. */
+/** One project folder's list, as the store keeps it (key `list:<folder>`). */
 export type TodoList = {
   title: string
   items: TodoItem[]

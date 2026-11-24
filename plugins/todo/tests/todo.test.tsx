@@ -6,11 +6,16 @@ const PANE = {
   props: { title: 'To-do', isFocused: true, bodyColumns: 50, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
 } as const
 
-function world(on: any, store?: Record<string, unknown>) {
+const ALPHA = 'C:\\Work\\Alpha'
+const ALPHA_KEY = 'list:c:/work/alpha'
+
+/** `root` is the session's project folder; change `where.root` to move the session. */
+function world(on: any, store?: Record<string, unknown>, where = { root: ALPHA }) {
   mock.store(on, store)
   on('tool.register', () => ({ value: { tool: TOOL } }))
   on('command.register', () => ({ value: {} }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.root', () => ({ value: where.root }))
   on('session.start', (_: any, e: any) => ({ cwd: e.cwd }))
 }
 
@@ -55,8 +60,8 @@ test('checking off, adding, removing and clearing', async ($, on) => {
   await ui.unmount()
 })
 
-test('the list from an earlier chat is there in a new one', async ($, on) => {
-  world(on, { list: { title: 'Up next', items: [{ id: 1, text: 'run this plan', done: false }], nextId: 2 } })
+test('the list from an earlier chat in the same folder is there in a new one', async ($, on) => {
+  world(on, { [ALPHA_KEY]: { title: 'Up next', items: [{ id: 1, text: 'run this plan', done: false }], nextId: 2 } })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const r: any = await $.tool.call({ tool: TOOL, action: 'show' } as any)
   expect(r.result).toBe('Up next:\n1. [ ] run this plan')
@@ -65,8 +70,31 @@ test('the list from an earlier chat is there in a new one', async ($, on) => {
   await ui.unmount()
 })
 
+test('each folder has its own list; other folders never see it', async ($, on) => {
+  const where = { root: ALPHA }
+  world(on, { list: { title: 'Old global', items: [{ id: 1, text: 'leftover', done: false }], nextId: 2 } }, where)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  // A folder with no list yet starts empty, named after the folder; the old global list is not shown.
+  let r: any = await $.tool.call({ tool: TOOL, action: 'show' } as any)
+  expect(r.result).toBe('Alpha: empty.')
+  r = await $.tool.call({ tool: TOOL, action: 'add', items: ['alpha task'] } as any)
+  expect(r.result).toBe('Alpha:\n1. [ ] alpha task')
+
+  where.root = 'C:\\Work\\Beta\\'
+  r = await $.tool.call({ tool: TOOL, action: 'show' } as any)
+  expect(r.result).toBe('Beta: empty.')
+  r = await $.tool.call({ tool: TOOL, action: 'add', items: ['beta task'] } as any)
+  expect(r.result).toBe('Beta:\n1. [ ] beta task')
+
+  // The same folder spelled differently (case, slashes) is the same list.
+  where.root = 'c:/work/alpha/'
+  r = await $.tool.call({ tool: TOOL, action: 'show' } as any)
+  expect(r.result).toBe('Alpha:\n1. [ ] alpha task')
+})
+
 test('Claude first, each group numbered from 1', async ($, on) => {
-  world(on, { list: { title: 'Up next', items: [{ id: 1, text: 'old item', done: false }], nextId: 2 } })
+  world(on, { [ALPHA_KEY]: { title: 'Up next', items: [{ id: 1, text: 'old item', done: false }], nextId: 2 } })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   let r: any = await $.tool.call({ tool: TOOL, action: 'show' } as any)
   expect(r.result).toBe('Up next:\n1. [ ] old item')

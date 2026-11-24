@@ -17,7 +17,7 @@
     {
       "name": "todo",
       "source": "./plugins/todo",
-      "description": "Your own to-do list, kept across chats, split into \"Waiting on Claude\" and \"Waiting on you\". Say \"put this on my to-do list\"; /todo opens the pane."
+      "description": "One to-do list per project folder, shared by the chats in that folder, split into \"Waiting on Claude\" and \"Waiting on you\". Say \"put this on my to-do list\"; /todo opens the pane."
     }
   ]
 }

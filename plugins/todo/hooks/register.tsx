@@ -3,18 +3,30 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { TodoItem, TodoList } from '../types'
 
-// To-do: your own list, kept across chats.
+// To-do: one list per project folder, kept across the chats in that folder.
 // - Say "put X on my to-do list" and Claude calls the `todo` tool this mod gives it.
 // - Each item is waiting on you or on Claude; the pane groups them that way.
 // - The To-do pane shows the list; press an item to check it off.
 // - /todo opens the pane.
-// The list lives in this mod's store, so every chat sees the same one. Each change
-// reads the store first, so two chats open at once don't overwrite each other's edits.
+// Each folder's list lives in this mod's store under `list:<folder>`, so chats in other
+// folders never see it. Each change reads the store first, so two chats open at once in
+// the same folder don't overwrite each other's edits.
 
 const PANE = 'todo'
 const TOOL = 'mcp__todo__todo'
-const STORE_KEY = 'list'
 const ACCENT = '#d97757'
+
+/** The session's project folder, written one way: forward slashes, no trailing slash, and a Windows drive path lowercased (Windows paths ignore case). */
+function folderKey(root: string): string {
+  let p = root.replace(/\\/g, '/').replace(/\/+$/, '') || '/'
+  if (/^[a-z]:/i.test(p)) p = p.toLowerCase()
+  return p
+}
+/** The session's folder: `key` names its list in the store; `name`, as the folder spells it, titles a new list. */
+async function folderOf($: EngineInterface): Promise<{ key: string; name: string }> {
+  const root = await $.session.root()
+  return { key: `list:${folderKey(root)}`, name: root.split(/[\\/]/).filter(Boolean).pop() ?? EMPTY.title }
+}
 
 type Who = TodoItem['who']
 /** Group order, top to bottom. Each group is numbered from 1. */
@@ -27,16 +39,17 @@ const list = atom({ plugin: 'todo', key: 'list' } as const, EMPTY, { shape: 'tod
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {})
 const asWho = (v: unknown): Who => (v === 'claude' ? 'claude' : 'you')
 
-/** The list as the store holds it now, tidied: anything malformed is dropped rather than trusted. */
+/** This folder's list as the store holds it now, tidied: anything malformed is dropped rather than trusted. */
 async function load($: EngineInterface): Promise<TodoList> {
-  const raw = obj(await $.store.get(STORE_KEY).catch(() => undefined))
+  const folder = await folderOf($)
+  const raw = obj(await $.store.get(folder.key).catch(() => undefined))
   const items: TodoItem[] = (Array.isArray(raw.items) ? raw.items : [])
     .map(obj)
     .filter(i => typeof i.text === 'string' && typeof i.id === 'number')
     .map(i => ({ id: i.id as number, text: i.text as string, done: i.done === true, who: asWho(i.who) }))
   const maxId = items.reduce((m, i) => Math.max(m, i.id), 0)
   return {
-    title: typeof raw.title === 'string' && raw.title.trim() ? raw.title : EMPTY.title,
+    title: typeof raw.title === 'string' && raw.title.trim() ? raw.title : folder.name,
     items,
     nextId: Math.max(typeof raw.nextId === 'number' ? raw.nextId : 1, maxId + 1),
   }
@@ -45,7 +58,7 @@ async function load($: EngineInterface): Promise<TodoList> {
 /** Reads the store, applies `fn`, writes it back, and redraws the pane. */
 async function change($: EngineInterface, fn: (l: TodoList) => TodoList): Promise<TodoList> {
   const nextList = fn(await load($))
-  await $.store.set(STORE_KEY, nextList)
+  await $.store.set((await folderOf($)).key, nextList)
   await update($, list, () => nextList)
   return nextList
 }
@@ -163,7 +176,7 @@ async function run($: EngineInterface, input: Record<string, unknown>): Promise<
 }
 
 const DESCRIPTION = [
-  "The person's own to-do list: one list, kept across all their chats and shown in the To-do pane beside the chat.",
+  "The person's to-do list for this project folder: each folder has its own list, shared by the chats in that folder and shown in the To-do pane beside the chat. Chats in other folders have their own lists and never see this one.",
   'Use it whenever they ask to put something on, check off, change, reorder or clear their to-do list, or ask what is on it',
   '("add review this to my list", "make a to-do list called Up next with ...", "check off 2", "what\'s next?").',
   'Each item waits on someone: "you" (the person: their call, their errand, something only they can do) or "claude" (work they want you to pick up later, or that you said you would do).',

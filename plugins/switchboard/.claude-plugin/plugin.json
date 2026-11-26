@@ -1,6 +1,6 @@
 {
   "name": "switchboard",
-  "version": "0.3.1",
-  "description": "/switchboard: one pane listing every installed mod, each with an On/Off for this chat only and an On/Off for every chat. Uses Claude Code's own plugin enable and disable, and /reload-plugins to apply in this chat.",
+  "version": "0.4.0",
+  "description": "/switchboard: one pane listing every installed mod, each with an On/Off for this chat only and an On/Off for every chat, plus each mod's own settings under its name. Uses Claude Code's own plugin enable and disable, and /reload-plugins to apply in this chat.",
   "types": "./types/index.d.ts"
 }

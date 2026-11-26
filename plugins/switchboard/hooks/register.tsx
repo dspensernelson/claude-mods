@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { ModRow } from '../types'
+import type { ModRow, SettingRow } from '../types'
+import { commandFor, commandSettings, configSettings, RECIPES, storePrefix } from './settings'
 
 // Switchboard: /switchboard opens a pane with every installed mod and two switches each.
 //
@@ -29,6 +30,8 @@ const note = atom({ plugin: 'switchboard', key: 'note' } as const, '')
 const atStart = atom({ plugin: 'switchboard', key: 'atStart' } as const, {} as Record<string, boolean>)
 const chat = atom({ plugin: 'switchboard', key: 'chat' } as const, {} as Record<string, boolean>)
 const canReload = atom({ plugin: 'switchboard', key: 'canReload' } as const, false)
+const open = atom({ plugin: 'switchboard', key: 'open' } as const, '')
+const settings = atom({ plugin: 'switchboard', key: 'settings' } as const, [] as SettingRow[])
 
 const RELOAD = 'reload-plugins'
 /** Store key: global settings flipped for a reload and not yet put back, id -> the value to put back. */
@@ -87,9 +90,11 @@ async function scan($: EngineInterface): Promise<ModRow[]> {
     const manifest = obj(await readJson($, `${dir}/.claude-plugin/plugin.json`))
     const on = global[id] === true
     const loaded = id in start ? start[id] === true : on
+    const name = typeof manifest.name === 'string' ? manifest.name : id.split('@')[0] ?? id
     out.push({
       id,
-      name: typeof manifest.name === 'string' ? manifest.name : id.split('@')[0] ?? id,
+      name,
+      hasSettings: Object.keys(obj(manifest.userConfig)).length > 0 || name in RECIPES,
       description: typeof manifest.description === 'string' ? manifest.description : '',
       global: on,
       here: id in mine ? mine[id] === true : loaded,
@@ -102,6 +107,8 @@ async function scan($: EngineInterface): Promise<ModRow[]> {
 async function refresh($: EngineInterface) {
   const list = await scan($)
   await update($, rows, () => list)
+  const id = await read($, open)
+  if (id) await loadSettings($, id).catch(() => undefined)
 }
 
 async function findClaude($: EngineInterface) {
@@ -219,6 +226,59 @@ function toggleChat($: EngineInterface, row: ModRow) {
   })
 }
 
+// ---- A mod's own settings -------------------------------------------------
+
+/** A mod's saved data, read only: the file its $.store lives in. Empty when there is none yet. */
+async function storeOf($: EngineInterface, id: string): Promise<Record<string, unknown>> {
+  const dir = `${home}/.claude/plugins/store`
+  const prefix = storePrefix(id)
+  const entries = await $.fs.list(dir).catch(() => [])
+  const file = entries.find(f => f.kind === 'file' && f.name.startsWith(prefix) && f.name.endsWith('.json'))
+  return file ? obj(await readJson($, `${dir}/${file.name}`)) : {}
+}
+
+/** Every setting of one mod: its official ones, then its command ones. */
+async function settingsOf($: EngineInterface, row: ModRow): Promise<SettingRow[]> {
+  const config = configSettings(row.name, await $.config.list().catch(() => []))
+  const command = row.name in RECIPES ? commandSettings(row.name, await storeOf($, row.id)) : []
+  return [...config, ...command]
+}
+
+async function loadSettings($: EngineInterface, id: string) {
+  const row = (await read($, rows)).find(r => r.id === id)
+  const list = row && row.here ? await settingsOf($, row) : []
+  await update($, settings, () => list)
+}
+
+/** Opens a mod's settings under its row, or closes them. */
+async function toggleOpen($: EngineInterface, row: ModRow) {
+  const next = (await read($, open)) === row.id ? '' : row.id
+  await update($, open, () => next)
+  await update($, settings, () => [])
+  if (next) await loadSettings($, next).catch(err => update($, note, () => `Could not read ${row.name}'s settings: ${String(err)}`))
+}
+
+/** Moves one setting to `value`, through Claude Code's settings or the mod's own command. */
+async function choose($: EngineInterface, row: ModRow, s: SettingRow, value: string) {
+  if ((await read($, busy)) || s.locked || s.value === value) return
+  await update($, busy, () => `${row.id}:${s.key}`)
+  const label = s.choices.find(c => c.value === value)?.label ?? value
+  try {
+    if (s.source === 'config') {
+      const { deny } = await $.config.set({ key: s.key, value: s.isBoolean ? value === 'true' : value })
+      await update($, note, () => (deny ? `${row.name} refused: ${deny}` : `${row.name}: ${s.label} is now ${label}, in every chat.`))
+    } else if (s.source === 'command') {
+      const run = commandFor(row.name, s.key, s.value, value)
+      if (run) await $.command.run(run)
+      await update($, note, () => `${row.name}: ${s.label} is now ${label}, in every chat.`)
+    }
+  } catch (err) {
+    await update($, note, () => `Could not change ${row.name}'s ${s.label}: ${err instanceof Error ? err.message : String(err)}`)
+  }
+  await loadSettings($, row.id).catch(() => undefined)
+  await update($, busy, () => '')
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const r = await next(e)
@@ -257,6 +317,8 @@ export const register: Register = on => {
     const working = await read($, busy)
     const last = await read($, note)
     const live = await read($, canReload)
+    const openId = await read($, open)
+    const openSettings = await read($, settings)
     const onHere = list.filter(r => r.here).length
     const ownChoices = list.filter(r => r.chatOnly !== undefined).length
     const waiting = list.filter(r => r.chatOnly === undefined && r.here !== r.global).length
@@ -271,6 +333,52 @@ export const register: Register = on => {
             <Text color={isOn ? color : undefined}>{isOn ? '● On' : '○ Off'}</Text>
           </Button>
         )}
+      </Box>
+    )
+
+    /** The open mod's settings, drawn under its row: a label, then one button per choice. */
+    const settingsBlock = (row: ModRow) => (
+      <Box key={`set:${row.id}`} flexDirection="column" width="100%" marginLeft={2} marginBottom={1}>
+        {!row.here ? (
+          <Text dimColor wrap="wrap">Turn this mod on in this chat to change its settings.</Text>
+        ) : openSettings.length === 0 ? (
+          <Text dimColor>Reading settings…</Text>
+        ) : (
+          <Text dimColor wrap="wrap">These settings apply to every chat.</Text>
+        )}
+        {row.here &&
+          openSettings.map((s, i) => {
+            const scope = `set${i}`
+            const isBusy = working === `${row.id}:${s.key}`
+            return (
+              <Box key={s.key} flexDirection="column" width="100%" marginTop={1} hover={{ scope }}>
+                <Text wrap="wrap">{s.label}{s.locked ? '  (set by your organization)' : ''}</Text>
+                {s.source === 'text' ? (
+                  <Text dimColor wrap="wrap">{`${s.value || '(empty)'}  · change in /config`}</Text>
+                ) : (
+                  <Box flexDirection="row" flexWrap="wrap" columnGap={2} width="100%">
+                    {isBusy ? (
+                      <Text color={ACCENT}>…</Text>
+                    ) : (
+                      s.choices.map(c => {
+                        const picked = c.value === s.value
+                        return (
+                          <Button key={`${s.key}=${c.value}`} plain dimColor={!picked} onPress={() => void choose($, row, s, c.value)}>
+                            <Text color={picked ? GOOD : undefined}>{`${picked ? '●' : '○'} ${c.label}`}</Text>
+                          </Button>
+                        )
+                      })
+                    )}
+                  </Box>
+                )}
+                {s.description ? (
+                  <Box display="none" hover={{ scope, display: 'flex' }} width="100%" overflow="hidden">
+                    <Text dimColor wrap="wrap">{s.description}</Text>
+                  </Box>
+                ) : null}
+              </Box>
+            )
+          })}
       </Box>
     )
 
@@ -308,9 +416,18 @@ export const register: Register = on => {
               <Box flexDirection="row" alignItems="center" width="100%" hover={{ scope }}>
                 {/* The name gives up room first; the toggles never shrink. */}
                 <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
-                  <Text bold={row.here} dimColor={!row.here} wrap="truncate-end" hover={{ scope, dimColor: false }}>
-                    {row.name}
-                  </Text>
+                  {/* A mod with settings has a ▸ before its name; pressing the name opens them. */}
+                  {row.hasSettings ? (
+                    <Button key={`o:${row.id}`} plain onPress={() => void toggleOpen($, row)}>
+                      <Text bold={row.here} dimColor={!row.here} wrap="truncate-end" hover={{ scope, dimColor: false }}>
+                        {`${openId === row.id ? '▾' : '▸'} ${row.name}`}
+                      </Text>
+                    </Button>
+                  ) : (
+                    <Text bold={row.here} dimColor={!row.here} wrap="truncate-end" hover={{ scope, dimColor: false }}>
+                      {`  ${row.name}`}
+                    </Text>
+                  )}
                 </Box>
                 {live && cell(`c:${row.id}`, row.here, row.chatOnly !== undefined ? ACCENT : GOOD, () => void toggleChat($, row), isBusy)}
                 {cell(`g:${row.id}`, row.global, GOOD, () => void toggleGlobal($, row), isBusy)}
@@ -320,6 +437,7 @@ export const register: Register = on => {
                   <Text dimColor wrap="wrap">{row.description}</Text>
                 </Box>
               ) : null}
+              {openId === row.id && settingsBlock(row)}
             </Box>
           )
         })}

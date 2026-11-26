@@ -26,6 +26,11 @@ Type `/switchboard` to open a side panel listing every mod you have installed, f
 
 After each switch it runs `/reload-plugins` for you, so **the change takes hold right away**. Where that command is not available, the change applies from your next chat instead. Hover a mod's row to see its description. The Switchboard does not list itself, so it cannot switch itself off.
 
+**A mod's own settings.** A mod with settings has a ▸ before its name. Click the name to open its settings under it, and click a choice to change it. These settings apply to every chat. Hover a setting to see what it does.
+
+- Settings a mod declares officially (its `userConfig`, the ones `/config` lists) show up by themselves, for any mod you install. Text settings are shown, and changed in `/config`.
+- Some mods keep their settings behind their own slash command instead. The Switchboard knows cache-tax, reflect-mod and skins, and changes their settings by running that mod's own command, so the mod stays in charge of its settings. To add another, add a recipe to `plugins/switchboard/hooks/settings.ts`.
+
 ## todo
 
 Your own to-do list, beside the chat, the same in every chat. Just talk to Claude:
